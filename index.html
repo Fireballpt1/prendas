@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Amigo Secreto</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Young+Serif&display=swap">
+<style>
+/* Página de revelação: não guarda nomes nenhuns, só descodifica o código que vem no link */
+:root{
+  --pine:#1E5A3C; --on-pine:#FFFFFF; --soft:rgba(255,255,255,.14); --err:#FFD9DE;
+  --display:"Young Serif", Georgia, "Times New Roman", serif;
+  --body:"Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+html,body{height:100%;margin:0}
+body{background:var(--pine);color:var(--on-pine);font-family:var(--body);font-size:20px;line-height:1.5;
+  display:flex;align-items:center;justify-content:center;text-align:center;
+  padding:calc(24px + env(safe-area-inset-top,0px)) max(20px,env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) max(20px,env(safe-area-inset-left,0px));box-sizing:border-box}
+main{display:flex;flex-direction:column;align-items:center;gap:22px;max-width:520px;width:100%}
+.small{font-size:1.05rem;opacity:.92;max-width:30ch;margin:0}
+.big{font-family:var(--display);font-size:clamp(2.2rem,11vw,3.6rem);line-height:1.1;margin:0;overflow-wrap:anywhere;text-wrap:balance}
+button{font:inherit;font-weight:700;font-size:1.15rem;min-height:60px;padding:14px 28px;border-radius:12px;border:0;background:var(--on-pine);color:#1E5A3C;cursor:pointer}
+button.ghost{background:transparent;color:var(--on-pine);border:2px solid var(--on-pine)}
+button:focus-visible,input:focus{outline:3px solid #FFFFFF;outline-offset:3px}
+input{font:inherit;width:100%;box-sizing:border-box;padding:14px;border-radius:12px;border:0;background:#FFFFFF;color:#1B2820;text-align:center;letter-spacing:.05em}
+.err{background:var(--soft);color:var(--err);padding:10px 14px;border-radius:10px;margin:0}
+.ribbon{width:56px;height:56px;opacity:.9}
+@media (prefers-reduced-motion:no-preference){ .pop{animation:pop .45s ease-out} @keyframes pop{from{transform:scale(.85);opacity:0}to{transform:none;opacity:1}} }
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script>
+const B32="abcdefghijkmnpqrstuvwxyz23456789";
+function fnv(s){let h=0x811c9dc5;for(const c of s){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0}
+function stream(seed){let a=seed|0;return()=>{a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)&255}}
+function fromB32(s){let bits=0,val=0;const out=[];for(const ch of s){const i=B32.indexOf(ch);if(i<0)return null;val=((val<<5)|i)&0xffff;bits+=5;if(bits>=8){out.push((val>>>(bits-8))&255);bits-=8}}return out}
+function decodeCode(code){
+  const clean=(code||"").toLowerCase().replace(/^#/,"").replace(/^p-/,"").replace(/[^a-z0-9]/g,"");
+  const bytes=fromB32(clean);if(!bytes||bytes.length<4)return null;
+  const [n1,n2,...body]=bytes;const ks=stream(fnv("prendas")^(n1<<8|n2));
+  const plain=body.map(b=>b^ks());const sum=plain.pop();
+  if(plain.reduce((a,b)=>(a+b)&255,0)!==sum)return null;
+  try{return new TextDecoder("utf-8",{fatal:true}).decode(new Uint8Array(plain))}catch(e){return null}
+}
+const app=document.getElementById("app");
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const gift=`<svg class="ribbon" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="26" width="48" height="30" rx="3"/><rect x="5" y="18" width="54" height="9" rx="2"/><path d="M32 18v38"/><path d="M32 18c-4-10-16-12-16-4 0 4 8 4 16 4zM32 18c4-10 16-12 16-4 0 4-8 4-16 4z"/></svg>`;
+
+function askCode(msg){
+  app.innerHTML=`${gift}<p class="big">Amigo Secreto</p>
+    <p class="small">Escreve o código que recebeste no e-mail.</p>
+    ${msg?`<p class="err">${esc(msg)}</p>`:""}
+    <input id="code" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="abcd-efgh-…" aria-label="Código">
+    <button id="go">Ver</button>`;
+  const f=document.getElementById("code");
+  const go=()=>{const v=f.value.trim(); if(!v) return; const n=decodeCode(v); n?reveal(n):askCode("Este código não está certo. Confirma se copiaste tudo, com os tracinhos.")};
+  document.getElementById("go").onclick=go;
+  f.addEventListener("keydown",e=>{if(e.key==="Enter")go()});
+}
+function reveal(name){
+  app.innerHTML=`${gift}<p class="small">Amigo secreto de Natal</p><p class="big">Tens uma mensagem secreta</p>
+    <p class="small">Só deves abrir se este link foi enviado para ti.</p>
+    <button id="show">Mostrar a quem me calhou</button>`;
+  document.getElementById("show").onclick=()=>{
+    app.innerHTML=`<p class="small">Vais dar uma prenda a</p><p class="big pop">${esc(name)}</p>
+      <p class="small">Guarda segredo! Já podes fechar esta página.</p><button class="ghost" id="hide">Esconder</button>`;
+    document.getElementById("hide").onclick=()=>reveal(name);
+  };
+}
+function route(){
+  const h=location.hash;
+  if(/^#p-[a-z0-9-]+$/i.test(h)){const n=decodeCode(h); n?reveal(n):askCode("Este link não está completo. Experimenta escrever o código do e-mail.");}
+  else askCode();
+}
+window.addEventListener("hashchange",route);
+route();
+</script>
+</body>
+</html>
