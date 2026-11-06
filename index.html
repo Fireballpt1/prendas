@@ -37,13 +37,16 @@ const B32="abcdefghijkmnpqrstuvwxyz23456789";
 function fnv(s){let h=0x811c9dc5;for(const c of s){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0}
 function stream(seed){let a=seed|0;return()=>{a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)&255}}
 function fromB32(s){let bits=0,val=0;const out=[];for(const ch of s){const i=B32.indexOf(ch);if(i<0)return null;val=((val<<5)|i)&0xffff;bits+=5;if(bits>=8){out.push((val>>>(bits-8))&255);bits-=8}}return out}
-function decodeCode(code){
-  const clean=(code||"").toLowerCase().replace(/^#/,"").replace(/^p-/,"").replace(/[^a-z0-9]/g,"");
-  const bytes=fromB32(clean);if(!bytes||bytes.length<4)return null;
-  const [n1,n2,...body]=bytes;const ks=stream(fnv("prendas")^(n1<<8|n2));
-  const plain=body.map(b=>b^ks());const sum=plain.pop();
-  if(plain.reduce((a,b)=>(a+b)&255,0)!==sum)return null;
-  try{return new TextDecoder("utf-8",{fatal:true}).decode(new Uint8Array(plain))}catch(e){return null}
+const PAD=30;
+function unpad(b){let k=b.length;while(k>0&&b[k-1]===0)k--;return new TextDecoder("utf-8",{fatal:true}).decode(new Uint8Array(b.slice(0,k)))}
+function decodePair(code){
+  let c=String(code||""); const k=c.indexOf("#p-"); if(k>=0) c=c.slice(k+3);
+  const clean=c.toLowerCase().replace(/^p-/,"").replace(/[^a-z0-9]/g,"");
+  const bytes=fromB32(clean); if(!bytes||bytes.length!==2+PAD*2+1) return null;
+  const [n1,n2,...body]=bytes; const ks=stream(fnv("prendas")^(n1<<8|n2));
+  const plain=body.map(b=>b^ks()); const sum=plain.pop();
+  if(plain.reduce((a,b)=>(a+b)&255,0)!==sum) return null;
+  try{ const g=unpad(plain.slice(0,PAD)), r=unpad(plain.slice(PAD)); return g&&r?{giver:g,receiver:r}:null }catch(e){ return null }
 }
 const app=document.getElementById("app");
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -51,28 +54,34 @@ const gift=`<svg class="ribbon" viewBox="0 0 64 64" fill="none" stroke="currentC
 
 function askCode(msg){
   app.innerHTML=`${gift}<p class="big">Amigo Secreto</p>
-    <p class="small">Escreve o código que recebeste no e-mail.</p>
+    <p class="small">Abre o link que recebeste na mensagem. Se não abrir, copia o link todo e cola-o aqui.</p>
     ${msg?`<p class="err">${esc(msg)}</p>`:""}
-    <input id="code" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="abcd-efgh-…" aria-label="Código">
+    <input id="code" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Cola aqui o link" aria-label="Link ou código">
     <button id="go">Ver</button>`;
   const f=document.getElementById("code");
-  const go=()=>{const v=f.value.trim(); if(!v) return; const n=decodeCode(v); n?reveal(n):askCode("Este código não está certo. Confirma se copiaste tudo, com os tracinhos.")};
+  const go=()=>{const v=f.value.trim(); if(!v) return; const p=decodePair(v); p?ask(p):askCode("Este link não está completo. Confirma se copiaste tudo.")};
   document.getElementById("go").onclick=go;
   f.addEventListener("keydown",e=>{if(e.key==="Enter")go()});
 }
-function reveal(name){
-  app.innerHTML=`${gift}<p class="small">Amigo secreto de Natal</p><p class="big">Tens uma mensagem secreta</p>
-    <p class="small">Só deves abrir se este link foi enviado para ti.</p>
-    <button id="show">Mostrar a quem me calhou</button>`;
-  document.getElementById("show").onclick=()=>{
-    app.innerHTML=`<p class="small">Vais dar uma prenda a</p><p class="big pop">${esc(name)}</p>
-      <p class="small">Guarda segredo! Já podes fechar esta página.</p><button class="ghost" id="hide">Esconder</button>`;
-    document.getElementById("hide").onclick=()=>reveal(name);
+function ask(p){
+  app.innerHTML=`${gift}<p class="small">Amigo secreto de Natal</p><p class="small">Esta mensagem secreta é para</p><p class="big">${esc(p.giver)}</p>
+    <p class="small">És tu? Se não és, não carregues.</p>
+    <button id="yes">Sim, sou eu</button><button class="ghost" id="no">Não sou</button>`;
+  document.getElementById("yes").onclick=()=>show(p);
+  document.getElementById("no").onclick=()=>{
+    app.innerHTML=`${gift}<p class="big">Este link não é para ti</p><p class="small">Fecha esta página sem espreitar. Se alguém te enviou este link por engano, avisa essa pessoa.</p>
+      <button class="ghost" id="back">Afinal sou ${esc(p.giver)}</button>`;
+    document.getElementById("back").onclick=()=>ask(p);
   };
+}
+function show(p){
+  app.innerHTML=`<p class="small">${esc(p.giver)}, vais dar uma prenda a</p><p class="big pop">${esc(p.receiver)}</p>
+    <p class="small">Guarda segredo! Já podes fechar esta página.</p><button class="ghost" id="hide">Esconder</button>`;
+  document.getElementById("hide").onclick=()=>ask(p);
 }
 function route(){
   const h=location.hash;
-  if(/^#p-[a-z0-9-]+$/i.test(h)){const n=decodeCode(h); n?reveal(n):askCode("Este link não está completo. Experimenta escrever o código do e-mail.");}
+  if(/^#p-[a-z0-9-]+$/i.test(h)){const p=decodePair(h); p?ask(p):askCode("Este link não está completo. Experimenta copiar o link todo da mensagem e colá-lo aqui.");}
   else askCode();
 }
 window.addEventListener("hashchange",route);
